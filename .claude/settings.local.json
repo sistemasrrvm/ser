@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git ls-tree:*)",
+      "Bash(Start-Sleep -Seconds 5)",
+      "Bash(.venvScriptspython.exe scriptsrun_migration_009.py)",
+      "Bash(powershell -Command \"cd D:\\REPOSITORIO_GIT\\laudonr13\\backend; .\\.venv\\Scripts\\python.exe .\\scripts\\run_migration_009.py\")",
+      "Bash(powershell -Command \"cd D:\\REPOSITORIO_GIT\\laudonr13\\backend; .\\venv\\Scripts\\python.exe .\\scripts\\run_migration_009.py\")",
+      "Bash(Get-Date -Format \"yyyy-MM\")",
+      "Bash(powershell -Command \"Get-Date -Format ''yyyy-MM''\")",
+      "Bash(powershell -Command \"Get-ChildItem -Path ''D:\\REPOSITORIO_GIT\\laudonr13-doc\\.claude-sprints\\2025-11'' -Directory | Sort-Object Name -Descending | Select-Object -First 1 Name\")",
+      "Bash(powershell -Command:*)",
+      "Bash(npm run dev:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm install:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git checkout:*)",
+      "Bash(python scripts/run_migration_012.py:*)",
+      "Bash(run_migration_013.py)",
+      "Bash(python scripts/run_migration_014.py:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

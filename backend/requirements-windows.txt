@@ -1,0 +1,5 @@
+# Dependências adicionais para exportação Excel via COM (Windows + Excel desktop)
+# Instalar APÓS requirements.txt:
+#   pip install -r requirements.txt -r requirements-windows.txt
+xlwings>=0.30.0
+pywin32>=306

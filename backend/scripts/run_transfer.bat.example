@@ -1,0 +1,135 @@
+@echo off
+REM ============================================================================
+REM  Transferencia SQL Server -> MySQL (clientes + equipamentos)
+REM
+REM  1) copy run_transfer.bat.example run_transfer.bat
+REM  2) Preencha as senhas / URL MySQL abaixo
+REM  3) Duplo-clique em run_transfer.bat
+REM ============================================================================
+
+setlocal EnableExtensions
+chcp 65001 >nul
+cd /d "%~dp0.."
+
+REM ======================== CONFIGURACAO ======================================
+
+REM --- SQL Server (origem) ---
+set "MSSQL_SERVER=sql7001.site4now.net"
+set "MSSQL_DATABASE=DB_A2CB65_rrvm"
+set "MSSQL_USER=DB_A2CB65_rrvm_admin"
+set "MSSQL_PASSWORD=COLOQUE_SENHA_SQLSERVER"
+
+REM --- MySQL Railway (destino) ---
+REM
+REM OPCAO A (RECOMENDADA): URL publica do TCP Proxy do Railway
+REM   Painel Railway > MySQL > Connect > Public Network
+REM   Copie a URL completa (host *.proxy.rlwy.net, porta 5 digitos)
+REM   Exemplo:
+REM   set "MYSQL_DATABASE_URL=mysql://root:SUA_SENHA@roundhouse.proxy.rlwy.net:19259/railway"
+set "MYSQL_DATABASE_URL="
+
+REM OPCAO B: host e porta separados (somente se nao usar MYSQL_DATABASE_URL)
+REM   NAO use mysql-production-xxxx.up.railway.app:3306 (da timeout!)
+set "MYSQL_HOST="
+set "MYSQL_PORT="
+set "MYSQL_USER=root"
+set "MYSQL_PASSWORD=COLOQUE_SENHA_MYSQL"
+set "MYSQL_DATABASE=railway"
+
+set "BATCH_SIZE=100"
+
+REM ============================================================================
+
+if "%MSSQL_PASSWORD%"=="COLOQUE_SENHA_SQLSERVER" goto :erro_senha
+
+REM Exige URL completa OU host+senha
+if not "%MYSQL_DATABASE_URL%"=="" goto :ok_mysql
+if "%MYSQL_PASSWORD%"=="COLOQUE_SENHA_MYSQL" goto :erro_senha
+if "%MYSQL_HOST%"=="" (
+    echo.
+    echo [ERRO] Defina MYSQL_DATABASE_URL com a URL do Railway TCP Proxy
+    echo        ou preencha MYSQL_HOST com host *.proxy.rlwy.net
+    echo.
+    pause
+    exit /b 1
+)
+:ok_mysql
+
+where python >nul 2>&1
+if errorlevel 1 (
+    echo [ERRO] Python nao encontrado.
+    pause
+    exit /b 1
+)
+
+echo.
+echo ======================================================================
+echo   Transferencia SQL Server -^> MySQL
+echo ======================================================================
+echo   Origem : %MSSQL_SERVER% / %MSSQL_DATABASE%
+if not "%MYSQL_DATABASE_URL%"=="" (
+    echo   Destino: URL MYSQL_DATABASE_URL ^(Railway TCP Proxy^)
+) else (
+    echo   Destino: %MYSQL_HOST%:%MYSQL_PORT% / %MYSQL_DATABASE%
+)
+echo   Lotes  : %BATCH_SIZE% registros
+echo ======================================================================
+echo.
+echo   1 - Transferir TUDO
+echo   2 - Simular ^(dry-run^)
+echo   3 - Apenas CLIENTES
+echo   4 - Apenas EQUIPAMENTOS
+echo   5 - Verificar COUNT no destino
+echo   6 - Sair
+echo.
+
+set /p OPCAO="Escolha (1-6): "
+
+if "%OPCAO%"=="1" goto :run_all
+if "%OPCAO%"=="2" goto :run_dry
+if "%OPCAO%"=="3" goto :run_cli
+if "%OPCAO%"=="4" goto :run_eqp
+if "%OPCAO%"=="5" goto :run_verify
+if "%OPCAO%"=="6" exit /b 0
+
+echo Opcao invalida.
+pause
+exit /b 1
+
+:run_all
+python scripts\transfer_sqlserver_to_mysql.py --batch-size %BATCH_SIZE%
+goto :fim
+
+:run_dry
+python scripts\transfer_sqlserver_to_mysql.py --dry-run --batch-size %BATCH_SIZE%
+goto :fim
+
+:run_cli
+python scripts\transfer_sqlserver_to_mysql.py --only clientes --batch-size %BATCH_SIZE%
+goto :fim
+
+:run_eqp
+python scripts\transfer_sqlserver_to_mysql.py --only equipamentos --batch-size %BATCH_SIZE%
+goto :fim
+
+:run_verify
+python scripts\transfer_sqlserver_to_mysql.py --verify-only
+goto :fim
+
+:erro_senha
+echo.
+echo [ERRO] Preencha MSSQL_PASSWORD e MYSQL_DATABASE_URL ^(ou MYSQL_PASSWORD^)
+echo.
+pause
+exit /b 1
+
+:fim
+echo.
+if errorlevel 1 (
+    echo [ERRO] Falhou. Veja a mensagem acima.
+) else (
+    echo [OK] Finalizado.
+)
+echo.
+pause
+endlocal

@@ -1,0 +1,352 @@
+"""
+Serviço de sincronização com SQL Server (sistema NR13)
+Sincroniza dados das tabelas MANUT_* para cache local MySQL
+"""
+
+import os
+import pyodbc
+from datetime import datetime
+from typing import Optional, Dict, Any, List
+from sqlmodel import Session, select
+from ..models import ManutCliente, ManutTipoEquipamento, ManutEquipamento
+from ..core.database import engine
+from ..core.colored_logging import log_info, log_error, log_warning
+
+
+class SQLServerSyncService:
+    """Serviço de sincronização com SQL Server"""
+
+    def __init__(self):
+        self.sqlserver_config = self._get_sqlserver_config()
+        self.connection_string = self._build_connection_string()
+
+    def _get_sqlserver_config(self) -> Dict[str, str]:
+        """Obter configuração do SQL Server do ambiente"""
+        return {
+            "host": os.getenv("SQLSERVER_HOST", ""),
+            "port": os.getenv("SQLSERVER_PORT", "1433"),
+            "database": os.getenv("SQLSERVER_DATABASE", ""),
+            "user": os.getenv("SQLSERVER_USER", ""),
+            "password": os.getenv("SQLSERVER_PASSWORD", ""),
+            "driver": os.getenv("SQLSERVER_DRIVER", "ODBC Driver 17 for SQL Server"),
+        }
+
+    def _build_connection_string(self) -> str:
+        """Construir connection string do SQL Server"""
+        cfg = self.sqlserver_config
+        return (
+            f"DRIVER={{{cfg['driver']}}};"
+            f"SERVER={cfg['host']},{cfg['port']};"
+            f"DATABASE={cfg['database']};"
+            f"UID={cfg['user']};"
+            f"PWD={cfg['password']};"
+            f"TrustServerCertificate=yes;"
+        )
+
+    def _is_configured(self) -> bool:
+        """Verificar se SQL Server está configurado"""
+        cfg = self.sqlserver_config
+        return bool(cfg["host"] and cfg["database"] and cfg["user"] and cfg["password"])
+
+    def test_connection(self) -> bool:
+        """Testar conexão com SQL Server"""
+        if not self._is_configured():
+            log_warning("[SYNC] SQL Server nao configurado - sync desabilitado")
+            return False
+
+        try:
+            conn = pyodbc.connect(self.connection_string, timeout=5)
+            conn.close()
+            log_info("[SYNC] Conexao com SQL Server OK")
+            return True
+        except Exception as e:
+            log_error(f"[SYNC] Erro ao conectar SQL Server: {e}")
+            return False
+
+    def sync_clientes(self) -> Dict[str, Any]:
+        """Sincronizar tabela MANUT_CLIENTE"""
+        log_info("[SYNC] Iniciando sincronizacao de clientes...")
+
+        if not self._is_configured():
+            log_warning("[SYNC] SQL Server nao configurado - pulando sync clientes")
+            return {"success": False, "message": "SQL Server not configured"}
+
+        try:
+            # Conectar ao SQL Server
+            conn_sqlserver = pyodbc.connect(self.connection_string, timeout=10)
+            cursor = conn_sqlserver.cursor()
+
+            # Buscar dados do SQL Server
+            cursor.execute("""
+                SELECT
+                    ID,
+                    CODIGO,
+                    NOME,
+                    CNPJ,
+                    ATIVO,
+                    DATA_CRIACAO,
+                    DATA_ATUALIZACAO
+                FROM MANUT_CLIENTE
+                WHERE ATIVO = 1
+            """)
+
+            rows = cursor.fetchall()
+            log_info(f"[SYNC] {len(rows)} clientes encontrados no SQL Server")
+
+            # Conectar ao MySQL local
+            with Session(engine) as session:
+                sync_count = 0
+                insert_count = 0
+                update_count = 0
+                now = datetime.utcnow()
+
+                for row in rows:
+                    # Verificar se já existe no cache
+                    existing = session.exec(
+                        select(ManutCliente).where(ManutCliente.id == row.ID)
+                    ).first()
+
+                    if existing:
+                        # Atualizar registro existente
+                        existing.codigo = row.CODIGO
+                        existing.nome = row.NOME
+                        existing.cnpj = row.CNPJ
+                        existing.ativo = bool(row.ATIVO)
+                        existing.criado_em = row.DATA_CRIACAO
+                        existing.atualizado_em = row.DATA_ATUALIZACAO
+                        existing.ultima_sinc = now
+                        update_count += 1
+                    else:
+                        # Inserir novo registro
+                        novo_cliente = ManutCliente(
+                            id=row.ID,
+                            codigo=row.CODIGO,
+                            nome=row.NOME,
+                            cnpj=row.CNPJ,
+                            ativo=bool(row.ATIVO),
+                            criado_em=row.DATA_CRIACAO,
+                            atualizado_em=row.DATA_ATUALIZACAO,
+                            ultima_sinc=now
+                        )
+                        session.add(novo_cliente)
+                        insert_count += 1
+
+                    sync_count += 1
+
+                session.commit()
+
+            cursor.close()
+            conn_sqlserver.close()
+
+            log_info(f"[SYNC] Clientes sincronizados: {sync_count} ({insert_count} novos, {update_count} atualizados)")
+
+            return {
+                "success": True,
+                "total": sync_count,
+                "inserted": insert_count,
+                "updated": update_count,
+                "timestamp": now.isoformat()
+            }
+
+        except Exception as e:
+            log_error(f"[SYNC] Erro ao sincronizar clientes: {e}")
+            return {"success": False, "message": str(e)}
+
+    def sync_tipos_equipamento(self) -> Dict[str, Any]:
+        """Sincronizar tabela MANUT_TIPO_EQUIPAMENTO"""
+        log_info("[SYNC] Iniciando sincronizacao de tipos de equipamento...")
+
+        if not self._is_configured():
+            log_warning("[SYNC] SQL Server nao configurado - pulando sync tipos")
+            return {"success": False, "message": "SQL Server not configured"}
+
+        try:
+            conn_sqlserver = pyodbc.connect(self.connection_string, timeout=10)
+            cursor = conn_sqlserver.cursor()
+
+            cursor.execute("""
+                SELECT
+                    ID,
+                    CODIGO,
+                    NOME,
+                    DESCRICAO,
+                    ATIVO,
+                    DATA_CRIACAO,
+                    DATA_ATUALIZACAO
+                FROM MANUT_TIPO_EQUIPAMENTO
+                WHERE ATIVO = 1
+            """)
+
+            rows = cursor.fetchall()
+            log_info(f"[SYNC] {len(rows)} tipos de equipamento encontrados no SQL Server")
+
+            with Session(engine) as session:
+                sync_count = 0
+                insert_count = 0
+                update_count = 0
+                now = datetime.utcnow()
+
+                for row in rows:
+                    existing = session.exec(
+                        select(ManutTipoEquipamento).where(ManutTipoEquipamento.id == row.ID)
+                    ).first()
+
+                    if existing:
+                        existing.codigo = row.CODIGO
+                        existing.nome = row.NOME
+                        existing.descricao = row.DESCRICAO
+                        existing.ativo = bool(row.ATIVO)
+                        existing.criado_em = row.DATA_CRIACAO
+                        existing.atualizado_em = row.DATA_ATUALIZACAO
+                        existing.ultima_sinc = now
+                        update_count += 1
+                    else:
+                        novo_tipo = ManutTipoEquipamento(
+                            id=row.ID,
+                            codigo=row.CODIGO,
+                            nome=row.NOME,
+                            descricao=row.DESCRICAO,
+                            ativo=bool(row.ATIVO),
+                            criado_em=row.DATA_CRIACAO,
+                            atualizado_em=row.DATA_ATUALIZACAO,
+                            ultima_sinc=now
+                        )
+                        session.add(novo_tipo)
+                        insert_count += 1
+
+                    sync_count += 1
+
+                session.commit()
+
+            cursor.close()
+            conn_sqlserver.close()
+
+            log_info(f"[SYNC] Tipos sincronizados: {sync_count} ({insert_count} novos, {update_count} atualizados)")
+
+            return {
+                "success": True,
+                "total": sync_count,
+                "inserted": insert_count,
+                "updated": update_count,
+                "timestamp": now.isoformat()
+            }
+
+        except Exception as e:
+            log_error(f"[SYNC] Erro ao sincronizar tipos: {e}")
+            return {"success": False, "message": str(e)}
+
+    def sync_equipamentos(self) -> Dict[str, Any]:
+        """Sincronizar tabela MANUT_EQUIPAMENTO"""
+        log_info("[SYNC] Iniciando sincronizacao de equipamentos...")
+
+        if not self._is_configured():
+            log_warning("[SYNC] SQL Server nao configurado - pulando sync equipamentos")
+            return {"success": False, "message": "SQL Server not configured"}
+
+        try:
+            conn_sqlserver = pyodbc.connect(self.connection_string, timeout=10)
+            cursor = conn_sqlserver.cursor()
+
+            cursor.execute("""
+                SELECT
+                    ID,
+                    CODIGO,
+                    NOME,
+                    CLIENTE_ID,
+                    TIPO_EQUIPAMENTO_ID,
+                    NUMERO_SERIE,
+                    LOCALIZACAO,
+                    ATIVO,
+                    DATA_CRIACAO,
+                    DATA_ATUALIZACAO
+                FROM MANUT_EQUIPAMENTO
+                WHERE ATIVO = 1
+            """)
+
+            rows = cursor.fetchall()
+            log_info(f"[SYNC] {len(rows)} equipamentos encontrados no SQL Server")
+
+            with Session(engine) as session:
+                sync_count = 0
+                insert_count = 0
+                update_count = 0
+                now = datetime.utcnow()
+
+                for row in rows:
+                    existing = session.exec(
+                        select(ManutEquipamento).where(ManutEquipamento.id == row.ID)
+                    ).first()
+
+                    if existing:
+                        existing.codigo = row.CODIGO
+                        existing.nome = row.NOME
+                        existing.cliente_id = row.CLIENTE_ID
+                        existing.tipo_equipamento_id = row.TIPO_EQUIPAMENTO_ID
+                        existing.numero_serie = row.NUMERO_SERIE
+                        existing.localizacao = row.LOCALIZACAO
+                        existing.ativo = bool(row.ATIVO)
+                        existing.criado_em = row.DATA_CRIACAO
+                        existing.atualizado_em = row.DATA_ATUALIZACAO
+                        existing.ultima_sinc = now
+                        update_count += 1
+                    else:
+                        novo_equip = ManutEquipamento(
+                            id=row.ID,
+                            codigo=row.CODIGO,
+                            nome=row.NOME,
+                            cliente_id=row.CLIENTE_ID,
+                            tipo_equipamento_id=row.TIPO_EQUIPAMENTO_ID,
+                            numero_serie=row.NUMERO_SERIE,
+                            localizacao=row.LOCALIZACAO,
+                            ativo=bool(row.ATIVO),
+                            criado_em=row.DATA_CRIACAO,
+                            atualizado_em=row.DATA_ATUALIZACAO,
+                            ultima_sinc=now
+                        )
+                        session.add(novo_equip)
+                        insert_count += 1
+
+                    sync_count += 1
+
+                session.commit()
+
+            cursor.close()
+            conn_sqlserver.close()
+
+            log_info(f"[SYNC] Equipamentos sincronizados: {sync_count} ({insert_count} novos, {update_count} atualizados)")
+
+            return {
+                "success": True,
+                "total": sync_count,
+                "inserted": insert_count,
+                "updated": update_count,
+                "timestamp": now.isoformat()
+            }
+
+        except Exception as e:
+            log_error(f"[SYNC] Erro ao sincronizar equipamentos: {e}")
+            return {"success": False, "message": str(e)}
+
+    def sync_all(self) -> Dict[str, Any]:
+        """Sincronizar todas as tabelas"""
+        log_info("[SYNC] ========== INICIO SINCRONIZACAO COMPLETA ==========")
+
+        results = {
+            "clientes": self.sync_clientes(),
+            "tipos_equipamento": self.sync_tipos_equipamento(),
+            "equipamentos": self.sync_equipamentos(),
+        }
+
+        total_success = all(r["success"] for r in results.values())
+
+        log_info(f"[SYNC] ========== FIM SINCRONIZACAO - {'SUCESSO' if total_success else 'COM ERROS'} ==========")
+
+        return {
+            "success": total_success,
+            "results": results,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+
+# Instância global do serviço
+sync_service = SQLServerSyncService()
