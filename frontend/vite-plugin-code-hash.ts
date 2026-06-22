@@ -4,6 +4,7 @@
  */
 
 import { Plugin } from 'vite'
+import { execSync } from 'child_process'
 import { createHash } from 'crypto'
 import { readdirSync, readFileSync, statSync } from 'fs'
 import { join, relative } from 'path'
@@ -33,24 +34,58 @@ export function codeHashPlugin(options: Options = {}): Plugin {
       })
     },
     configResolved(config) {
-      // Gerar hash e definir variável global
-      const hash = generateCodeHash(root, include, exclude)
-      
-      // Adicionar define para injetar no código
+      const files = collectSourceFiles(root, include, exclude)
+      const hash = generateCodeHashFromFiles(files)
+      const buildDate = getLatestSourceChangeDate(root, files)
+
       config.define = config.define || {}
       config.define.__FRONTEND_CODE_HASH__ = JSON.stringify(hash)
+      config.define.__FRONTEND_BUILD_DATE__ = JSON.stringify(buildDate)
     }
   }
 }
 
-function generateCodeHash(
+function formatDDMMYYYY(date: Date): string {
+  const dd = String(date.getDate()).padStart(2, '0')
+  const mm = String(date.getMonth() + 1).padStart(2, '0')
+  const yyyy = date.getFullYear()
+  return `${dd}-${mm}-${yyyy}`
+}
+
+function getLatestSourceChangeDate(root: string, files: string[]): string {
+  try {
+    const gitDate = execSync('git log -1 --format=%ci -- src', {
+      cwd: root,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
+    if (gitDate) {
+      return formatDDMMYYYY(new Date(gitDate))
+    }
+  } catch {
+    // git indisponível ou fora de repositório
+  }
+
+  let latest = 0
+  for (const file of files) {
+    try {
+      latest = Math.max(latest, statSync(file).mtimeMs)
+    } catch {
+      // ignorar arquivos inacessíveis
+    }
+  }
+
+  return formatDDMMYYYY(new Date(latest || Date.now()))
+}
+
+function collectSourceFiles(
   root: string,
   include: string[],
   exclude: string[]
-): string {
+): string[] {
   const srcDir = join(root, 'src')
   const files: string[] = []
-  
+
   function collectFiles(dir: string, baseDir: string = srcDir): void {
     try {
       const entries = readdirSync(dir)
@@ -81,11 +116,19 @@ function generateCodeHash(
   }
   
   collectFiles(srcDir)
-  
-  // Ordenar arquivos para garantir hash consistente
   files.sort()
-  
-  // Ler conteúdo de todos os arquivos e gerar hash
+  return files
+}
+
+function generateCodeHash(
+  root: string,
+  include: string[],
+  exclude: string[]
+): string {
+  return generateCodeHashFromFiles(collectSourceFiles(root, include, exclude))
+}
+
+function generateCodeHashFromFiles(files: string[]): string {
   const hash = createHash('md5')
   
   for (const file of files) {

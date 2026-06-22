@@ -3,8 +3,9 @@
  * Hash do código fonte - mudanças no código alteram este hash
  */
 
-// Hash do código fonte será injetado no build time pelo Vite
+// Hash e data de build injetados no build time pelo Vite
 declare const __FRONTEND_CODE_HASH__: string | undefined
+declare const __FRONTEND_BUILD_DATE__: string | undefined
 
 class FrontendVersion {
   private backendCodeHash: string | null = null
@@ -85,6 +86,15 @@ class FrontendVersion {
     const backId = this.getBackendId()
     return `[F:${frontId}|B:${backId}]`
   }
+}
+
+export function getAppVersionLabel(): string {
+  const buildDate =
+    typeof __FRONTEND_BUILD_DATE__ !== 'undefined' && __FRONTEND_BUILD_DATE__
+      ? __FRONTEND_BUILD_DATE__
+      : new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')
+
+  return `SER - Sistema de Emissão de Relatórios - v:${buildDate}`
 }
 
 // Instância global

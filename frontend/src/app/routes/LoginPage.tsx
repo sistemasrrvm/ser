@@ -5,6 +5,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/lib/auth/AuthContext'
+import { getAppVersionLabel } from '@/lib/version'
 import { AlertCircle, Eye, EyeOff, Lock, User } from 'lucide-react'
 
 export default function LoginPage() {
@@ -162,7 +163,7 @@ export default function LoginPage() {
         {/* Footer */}
         <div className="text-center mt-8">
           <p className="text-gray-600 text-sm font-medium">
-            © 2025 SER - Sistema de Emissão de Relatórios
+            {getAppVersionLabel()}
           </p>
           <p className="text-gray-400 text-xs mt-1">
             Powered by RRVM
