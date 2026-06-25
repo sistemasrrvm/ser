@@ -3,7 +3,8 @@ Model: User
 Usuários do sistema
 """
 
-from sqlmodel import SQLModel, Field, Relationship
+from sqlmodel import SQLModel, Field, Relationship, Column
+from sqlalchemy import BigInteger
 from typing import Optional, TYPE_CHECKING
 from datetime import datetime
 
@@ -18,7 +19,7 @@ class User(SQLModel, table=True):
     """
     __tablename__ = "users"
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: Optional[int] = Field(default=None, sa_column=Column(BigInteger(), primary_key=True, autoincrement=True))
     username: str = Field(max_length=50, unique=True, index=True)
     password_hash: str = Field(max_length=255)
     full_name: str = Field(max_length=100)

@@ -57,6 +57,11 @@ logs/
 *.sqlite
 *.sqlite3
 
+# Dump de dados reais de producao (NAO versionar - LGPD / hashes de senha)
+# Transferir separadamente (OneDrive/pen drive). Ver INSTALL.md
+backend/migrations/banco_atual.sql
+backend/migrations/_backup_local_*.sql
+
 # OS
 Thumbs.db
 .DS_Store
