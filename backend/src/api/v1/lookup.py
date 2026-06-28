@@ -6,11 +6,13 @@ from fastapi import APIRouter, HTTPException, Query
 from sqlmodel import Session, select, text
 from typing import List, Optional
 import json
+import logging
 
 from ...core.database import _ensure_engine
 from ...models.configuracao import Configuracao
 
 api_router = APIRouter()
+logger = logging.getLogger("ser_app")
 
 
 @api_router.get("/lookup/views", tags=["Lookup"])
@@ -158,6 +160,16 @@ async def get_lookup_view_data(
             params["limit"] = page_size
             params["offset"] = offset
 
+            logger.info(
+                "[LOOKUP] view=%s search=%r filter=%r id=%r page=%s page_size=%s",
+                view_name,
+                search,
+                filter,
+                id,
+                page,
+                page_size,
+            )
+
             # Executar query de dados
             result = session.execute(text(base_query), params).fetchall()
 
@@ -177,6 +189,14 @@ async def get_lookup_view_data(
             total = total_row[0] if total_row else 0
 
             total_pages = (total + page_size - 1) // page_size
+
+            logger.info(
+                "[LOOKUP] view=%s search=%r → %d item(ns) (total=%d)",
+                view_name,
+                search,
+                len(items),
+                total,
+            )
 
             return {
                 "items": items,

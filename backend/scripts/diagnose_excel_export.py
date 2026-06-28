@@ -6,8 +6,9 @@ Uso no servidor do cliente:
   .\\venv\\Scripts\\activate
   python scripts/diagnose_excel_export.py
   python scripts/diagnose_excel_export.py --test-com   # testa abrir Excel (pode demorar)
+  python scripts/diagnose_excel_export.py --output diagnostico-excel.txt
 
-Saída: JSON no stdout (copiar e enviar para análise).
+Saída: JSON no stdout (ou arquivo com --output).
 """
 
 from __future__ import annotations
@@ -54,6 +55,39 @@ def _excel_installed() -> dict:
     except Exception as exc:
         info["error"] = str(exc)
     return info
+
+
+def _excel_com_runtime() -> dict:
+    """Versão/build do Excel via COM (rápido, sem export)."""
+    result: dict = {
+        "ok": False,
+        "application_version": None,
+        "build": None,
+        "path": None,
+        "error": None,
+    }
+    if sys.platform != "win32":
+        result["error"] = "COM só em Windows"
+        return result
+    app = None
+    try:
+        import xlwings as xw
+
+        app = xw.App(visible=False, add_book=False)
+        api = app.api
+        result["ok"] = True
+        result["application_version"] = str(getattr(api, "Version", "") or "")
+        result["build"] = str(getattr(api, "Build", "") or "")
+        result["path"] = str(getattr(api, "Path", "") or "")
+    except Exception as exc:
+        result["error"] = str(exc)
+    finally:
+        if app is not None:
+            try:
+                app.quit()
+            except Exception:
+                pass
+    return result
 
 
 def _excel_com_smoke_test() -> dict:
@@ -109,6 +143,11 @@ def main() -> int:
         action="store_true",
         help="Executa teste real abrindo Excel via COM (pode demorar/travar)",
     )
+    parser.add_argument(
+        "--output",
+        metavar="ARQUIVO",
+        help="Grava JSON no arquivo (ex.: diagnostico-excel.txt)",
+    )
     args = parser.parse_args()
 
     from src.core.config import settings
@@ -152,6 +191,7 @@ def main() -> int:
         },
         "packages": {name: _pkg_version(name) for name in packages},
         "excel_desktop": _excel_installed(),
+        "excel_com_runtime": _excel_com_runtime() if sys.platform == "win32" else {"skipped": True},
         "com_smoke_test": _excel_com_smoke_test() if args.test_com else {"skipped": True},
         "pip_freeze_sample": None,
     }
@@ -169,7 +209,12 @@ def main() -> int:
     except Exception as exc:
         report["pip_freeze_sample"] = [f"erro: {exc}"]
 
-    print(json.dumps(report, indent=2, ensure_ascii=False))
+    payload = json.dumps(report, indent=2, ensure_ascii=False)
+    if args.output:
+        out_path = Path(args.output)
+        out_path.write_text(payload, encoding="utf-8")
+        print(f"Diagnóstico salvo em: {out_path.resolve()}")
+    print(payload)
     smoke = report["com_smoke_test"]
     if smoke.get("skipped"):
         return 0

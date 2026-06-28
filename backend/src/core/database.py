@@ -16,6 +16,26 @@ _logger = logging.getLogger(__name__)
 _engine: Optional[Session] = None
 
 
+def _normalize_mysql_url(url: str) -> str:
+    """Garante charset=utf8mb4 na URL (evita ?? em acentos no Windows)."""
+    if not url.startswith("mysql"):
+        return url
+    if "charset=" in url.lower():
+        return url
+    separator = "&" if "?" in url else "?"
+    return f"{url}{separator}charset=utf8mb4"
+
+
+def _mysql_connect_args(url: str) -> dict:
+    if not url.startswith("mysql"):
+        return {}
+    return {
+        "charset": "utf8mb4",
+        "use_unicode": True,
+        "init_command": "SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci",
+    }
+
+
 def _ensure_engine():
     """
     Cria o engine do banco de dados de forma lazy (apenas quando necessário)
@@ -53,11 +73,13 @@ def _ensure_engine():
     print("🔧 Criando engine do banco de dados...", file=sys.stderr)
     
     try:
+        db_url = _normalize_mysql_url(settings.DATABASE_URL)
         _engine = create_engine(
-            settings.DATABASE_URL,
+            db_url,
             echo=False,  # Desabilitar logs SQL (mesmo em debug para evitar poluição)
             pool_pre_ping=True,   # Verificar conexão antes de usar
-            pool_recycle=3600     # Reciclar conexões a cada hora
+            pool_recycle=3600,    # Reciclar conexões a cada hora
+            connect_args=_mysql_connect_args(db_url),
         )
         success_func("✅ Engine do banco de dados criado com sucesso")
         print("✅ Engine do banco de dados criado com sucesso", file=sys.stderr)

@@ -3,7 +3,7 @@
  * Campo de busca com dropdown de sugestões
  */
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Input } from './input'
 
 export interface AutocompleteOption {
@@ -23,7 +23,7 @@ interface AutocompleteProps {
   maxResults?: number
   totalCount?: number
   minCharsForSearch?: number
-  onSearch?: (searchTerm: string) => void
+  onSearch?: (searchTerm: string) => void | Promise<void>
   onFocus?: () => void
 }
 
@@ -39,90 +39,106 @@ export function Autocomplete({
   disabled = false,
   maxResults = 50,
   totalCount = 0,
-  minCharsForSearch = 0,
+  minCharsForSearch = 1,
   onSearch,
   onFocus,
 }: AutocompleteProps) {
   const [inputValue, setInputValue] = useState('')
   const [isOpen, setIsOpen] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
   const [filteredOptions, setFilteredOptions] = useState<AutocompleteOption[]>([])
   const [highlightedIndex, setHighlightedIndex] = useState(-1)
+  const [isSearching, setIsSearching] = useState(false)
   const wrapperRef = useRef<HTMLDivElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
-  const searchTimerRef = useRef<NodeJS.Timeout | null>(null)
-  const lastSearchRef = useRef<string>('')
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const searchSeqRef = useRef(0)
+  const onSearchRef = useRef(onSearch)
+  onSearchRef.current = onSearch
 
-  // Determinar se precisa de busca mínima
-  const requiresMinChars = minCharsForSearch > 0 && totalCount > 50
-  const hasMinChars = inputValue.trim().length >= minCharsForSearch
+  const requiresRemoteSearch = minCharsForSearch > 0 && totalCount > 50
+  const searchTerm = inputValue.trim()
+  const hasMinChars = searchTerm.length >= minCharsForSearch
 
-  // Exibir label do valor selecionado (options carregadas ou selectedLabel do pai)
+  const selectedLabelFromOptions = value
+    ? options.find((opt) => valuesMatch(opt.value, value))?.label
+    : undefined
+  const resolvedSelectedLabel = selectedLabelFromOptions || selectedLabel
+
+  // Sincronizar input com valor selecionado (somente quando não está digitando)
   useEffect(() => {
+    if (isEditing) return
+
     if (!value) {
       if (inputValue !== '') setInputValue('')
       return
     }
-    const fromOptions = options.find((opt) => valuesMatch(opt.value, value))
-    const label = fromOptions?.label || selectedLabel
-    if (label && inputValue !== label) {
-      setInputValue(label)
-    }
-  }, [value, options, selectedLabel])
 
-  // Filtrar opções quando input mudar
+    if (resolvedSelectedLabel && inputValue !== resolvedSelectedLabel) {
+      setInputValue(resolvedSelectedLabel)
+    }
+  }, [value, resolvedSelectedLabel, isEditing, inputValue])
+
+  // Filtro local nas opções já carregadas
   useEffect(() => {
-    // Se requer mínimo de caracteres e não atingiu, não filtrar
-    if (requiresMinChars && !hasMinChars) {
-      setFilteredOptions([])
-      return
-    }
-
-    // Filtro local
-    if (inputValue.trim() === '') {
-      setFilteredOptions(options.slice(0, maxResults))
+    if (searchTerm === '') {
+      // Listas remotas: não reutilizar resultados da última busca com campo vazio
+      if (requiresRemoteSearch) {
+        setFilteredOptions([])
+      } else {
+        setFilteredOptions(options.slice(0, maxResults))
+      }
     } else {
-      const searchTerm = inputValue.toLowerCase()
-      const filtered = options
-        .filter((opt) => opt.label.toLowerCase().includes(searchTerm))
-        .slice(0, maxResults)
-      setFilteredOptions(filtered)
+      const term = searchTerm.toLowerCase()
+      setFilteredOptions(
+        options.filter((opt) => opt.label.toLowerCase().includes(term)).slice(0, maxResults)
+      )
     }
     setHighlightedIndex(-1)
-  }, [inputValue, options, maxResults, requiresMinChars, hasMinChars])
+  }, [searchTerm, options, maxResults, requiresRemoteSearch])
 
-  // Disparar busca no backend separadamente (com debounce e prevenção de loop)
+  // Busca remota com debounce (listas grandes)
   useEffect(() => {
-    const searchTerm = inputValue.trim()
+    if (searchTimerRef.current) {
+      clearTimeout(searchTimerRef.current)
+      searchTimerRef.current = null
+    }
 
-    // Prevenir buscas duplicadas
-    if (lastSearchRef.current === searchTerm) {
+    if (!onSearchRef.current || !requiresRemoteSearch || !hasMinChars) {
+      setIsSearching(false)
       return
     }
 
-    if (onSearch && searchTerm !== '' && hasMinChars && requiresMinChars) {
-      // Limpar timer anterior
+    setIsSearching(true)
+    const seq = ++searchSeqRef.current
+
+    searchTimerRef.current = setTimeout(() => {
+      const searchFn = onSearchRef.current
+      if (!searchFn) {
+        setIsSearching(false)
+        return
+      }
+      void Promise.resolve(searchFn(searchTerm)).finally(() => {
+        if (searchSeqRef.current === seq) {
+          setIsSearching(false)
+        }
+      })
+    }, 300)
+
+    return () => {
       if (searchTimerRef.current) {
         clearTimeout(searchTimerRef.current)
-      }
-
-      searchTimerRef.current = setTimeout(() => {
-        lastSearchRef.current = searchTerm
-        onSearch(searchTerm)
-      }, 500) // Debounce de 500ms
-
-      return () => {
-        if (searchTimerRef.current) {
-          clearTimeout(searchTimerRef.current)
-        }
+        searchTimerRef.current = null
       }
     }
-  }, [inputValue, hasMinChars, requiresMinChars])
+  }, [searchTerm, hasMinChars, requiresRemoteSearch])
 
   // Fechar dropdown ao clicar fora
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
         setIsOpen(false)
+        setIsEditing(false)
       }
     }
 
@@ -134,11 +150,21 @@ export function Autocomplete({
     const newValue = e.target.value
     setInputValue(newValue)
     setIsOpen(true)
+    setIsEditing(true)
 
-    // Se limpar o input, limpar a seleção e resetar histórico de busca
     if (newValue === '') {
       onChange('')
-      lastSearchRef.current = '' // Permitir nova busca após limpar
+      setIsSearching(false)
+      searchSeqRef.current += 1
+      if (requiresRemoteSearch) {
+        void Promise.resolve(onSearch?.(''))
+      }
+      return
+    }
+
+    // Usuário alterou texto após seleção — entrar em modo busca
+    if (value && resolvedSelectedLabel && newValue !== resolvedSelectedLabel) {
+      onChange('')
     }
   }
 
@@ -146,6 +172,7 @@ export function Autocomplete({
     setInputValue(option.label)
     onChange(option.value)
     setIsOpen(false)
+    setIsEditing(false)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -180,7 +207,6 @@ export function Autocomplete({
     }
   }
 
-  // Scroll automático para item highlighted
   useEffect(() => {
     if (highlightedIndex >= 0 && dropdownRef.current) {
       const highlightedElement = dropdownRef.current.children[highlightedIndex] as HTMLElement
@@ -189,6 +215,25 @@ export function Autocomplete({
       }
     }
   }, [highlightedIndex])
+
+  const showEmptyHint =
+    isOpen &&
+    searchTerm === '' &&
+    requiresRemoteSearch
+
+  const showSearching =
+    isOpen &&
+    searchTerm !== '' &&
+    requiresRemoteSearch &&
+    hasMinChars &&
+    isSearching
+
+  const showNoResults =
+    isOpen &&
+    searchTerm !== '' &&
+    filteredOptions.length === 0 &&
+    !showSearching &&
+    (!requiresRemoteSearch || hasMinChars)
 
   return (
     <div ref={wrapperRef} className="relative">
@@ -199,7 +244,7 @@ export function Autocomplete({
         onChange={handleInputChange}
         onFocus={() => {
           setIsOpen(true)
-          if (onFocus) onFocus()
+          onFocus?.()
         }}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
@@ -207,7 +252,7 @@ export function Autocomplete({
         autoComplete="off"
       />
 
-      {isOpen && filteredOptions.length > 0 && (
+      {isOpen && filteredOptions.length > 0 && !showSearching && (
         <div
           ref={dropdownRef}
           className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto"
@@ -229,25 +274,25 @@ export function Autocomplete({
         </div>
       )}
 
-      {isOpen && filteredOptions.length === 0 && inputValue.trim() !== '' && (
-        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg p-3 text-sm text-gray-500">
-          {requiresMinChars && !hasMinChars ? (
-            <div>
-              <p className="font-semibold text-orange-600">Digite pelo menos {minCharsForSearch} caracteres</p>
-              <p className="text-xs mt-1">Esta lista contém {totalCount} itens. Para melhor performance, digite alguns caracteres para filtrar.</p>
-            </div>
-          ) : (
-            'Nenhum resultado encontrado'
-          )}
+      {showSearching && (
+        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg p-3 text-sm text-gray-600 flex items-center gap-2">
+          <span
+            className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600"
+            aria-hidden="true"
+          />
+          Buscando...
         </div>
       )}
 
-      {isOpen && inputValue.trim() === '' && requiresMinChars && (
-        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg p-3 text-sm">
-          <p className="text-orange-600 font-semibold">📝 Digite pelo menos {minCharsForSearch} caracteres</p>
-          <p className="text-gray-500 text-xs mt-1">
-            Esta lista contém <strong>{totalCount} itens</strong>. Para melhor performance, digite alguns caracteres para buscar.
-          </p>
+      {showNoResults && (
+        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg p-3 text-sm text-gray-500">
+          Nenhum resultado encontrado
+        </div>
+      )}
+
+      {showEmptyHint && (
+        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg p-3 text-sm text-gray-600">
+          Digite para buscar entre {totalCount} itens
         </div>
       )}
     </div>
