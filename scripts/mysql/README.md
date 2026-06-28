@@ -31,10 +31,30 @@ Insere dados iniciais:
 
 ## Como Executar
 
-### Via MySQL CLI
+### Windows — charset UTF-8 (obrigatório)
+
+Sem `utf8mb4`, acentos aparecem como `??` (ex.: `N??mero`, `Peri??dica`).
+
+**1. Criar banco com charset correto:**
+```sql
+CREATE DATABASE rrvm_laudonr13 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```
+
+**2. Executar scripts com charset explícito:**
+```powershell
+mysql --default-character-set=utf8mb4 -u root -p rrvm_laudonr13 < scripts\mysql\001_create_tables.sql
+mysql --default-character-set=utf8mb4 -u root -p rrvm_laudonr13 < scripts\mysql\002_seed_admin.sql
+```
+
+**3. No `backend\.env`:**
+```env
+DATABASE_URL=mysql+pymysql://root:senha@localhost/rrvm_laudonr13?charset=utf8mb4
+```
+
+### Via MySQL CLI (Linux/Mac)
 ```bash
-mysql -u root -p < scripts/mysql/001_create_tables.sql
-mysql -u root -p < scripts/mysql/002_seed_admin.sql
+mysql --default-character-set=utf8mb4 -u root -p < scripts/mysql/001_create_tables.sql
+mysql --default-character-set=utf8mb4 -u root -p < scripts/mysql/002_seed_admin.sql
 ```
 
 ### Via MySQL Workbench
@@ -58,5 +78,5 @@ python scripts/init_db.py
 ## Conexão do Backend
 
 ```env
-DATABASE_URL=mysql://root:1234@localhost/db_a2cb65_laudonr
+DATABASE_URL=mysql+pymysql://root:1234@localhost/rrvm_laudonr13?charset=utf8mb4
 ```

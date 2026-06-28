@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     # Exportação Excel (#304 / migração COM Windows)
     # Valores: excel_com | openpyxl | none | (vazio = auto: excel_com no Windows, none no Linux)
     EXPORT_ENGINE: str = ""
-    EXCEL_COM_TIMEOUT_SECONDS: int = 120
+    EXCEL_COM_TIMEOUT_SECONDS: int = 300
     EXCEL_TEMP_DIR: str = ""
     EXCEL_COM_VISIBLE: bool = False
 

@@ -19,7 +19,7 @@ export const api = axios.create({
 // com timeout maior devido ao processamento de arquivos grandes
 export const apiExport = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api/v1',
-  timeout: 120000,  // 2 minutos para exports
+  timeout: 300000,  // 5 minutos — alinhado com EXCEL_COM_TIMEOUT_SECONDS do backend
   withCredentials: true,
   headers: {
     'Content-Type': 'application/json',

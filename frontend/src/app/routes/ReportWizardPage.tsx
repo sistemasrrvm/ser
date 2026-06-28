@@ -344,11 +344,16 @@ export default function ReportWizardPage() {
       let response
 
       if (config?.source_type === 'view' && config?.target_view) {
+        const params: Record<string, unknown> = {
+          filter: filterValue || undefined,
+          page_size: 50,
+        }
+        if (searchTerm.trim()) {
+          params.search = searchTerm.trim()
+        }
+
         response = await api.get(`/lookup/views/${config.target_view}/data`, {
-          params: {
-            search: searchTerm,
-            filter: filterValue || undefined
-          }
+          params,
         })
         const items = response.data.items || []
 
@@ -886,7 +891,7 @@ export default function ReportWizardPage() {
                 placeholder="Digite para buscar..."
                 disabled={readOnly}
                 totalCount={totalCount}
-                minCharsForSearch={3}
+                minCharsForSearch={1}
                 onSearch={(searchTerm) => handleLookupSearch(field.id, searchTerm, field.configuracao, filterValue)}
                 onFocus={() => loadLookupOptionsForField(field)}
               />
